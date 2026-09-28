@@ -104,6 +104,23 @@ Hibrit arama                True     False
 Hibrit + yeniden sıralama   True     True
 ```
 
+## Sınırlamalar ve denenenler
+
+- **Test seti küçük.** 30 soru var; her soru yaklaşık 3 puan ediyor, bu yüzden deneyler arasındaki küçük farklar gürültü olabilir.
+- **Kaba kök kesmenin yan etkileri var.** 5 harf kök kesme Türkçe ekleri ve yazım hatalarını iyi yakalıyor, ama farklı anlamdaki kelimeler aynı köke düşebiliyor (ör. *"satın almak"* ile *"satınalma"* modülü).
+- **Başlıklara göre parçalama denendi ve bırakıldı.** Runbook'ları `##` başlıklarına göre bölüp her parçaya doküman başlığını eklemek Hit@1'i düşürdü. Runbook'lar arasında birbirine benzeyen genel bölümler (ör. "Etkilenen modül", "Ne zaman geliştiriciye iletilir") ayrı parçalar haline gelince yanlış dosyalardan da yüksek skor almaya başladı. Basit 800 karakterlik parçalamada kalındı.
+- **Kısa bilgi notları hâlâ en zayıf nokta.** Kalan hataların çoğu, bilgi notlarının uzun runbook'lara kaybetmesinden kaynaklanıyor.
+- **Sadece getirme adımı ölçülüyor.** Eval, üretilen özetin kaynağa sadık olup olmadığını ölçmüyor. Runbook'un cevabın altında her zaman değiştirilmeden gösterilmesinin bir sebebi de bu.
+- **Yeniden sıralama LLM'e bağlı.** Sonuçlar `qwen2.5:7b` ile ölçüldü; başka bir modelle Hit@1 farklı çıkabilir.
+
+### Planlananlar
+
+- Belirsiz sorularda netleştirme sorusu (`AMBIGUOUS` seti bunun için saklanıyor)
+- Görüntü okuyabilen bir modelle ekran görüntüsünden hata mesajı okuma
+- İlk arama zayıf sonuç verdiğinde soruyu yeniden yazıp tekrar arama
+- Her açılışta yeniden hesaplamak yerine kalıcı bir vektör deposu
+
+
 ## Kurulum
 
 ### 1. Ollama ve modeller
