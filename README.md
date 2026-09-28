@@ -1,5 +1,7 @@
 # Support Team RAG Assistant
 
+[Türkçe](README.tr.md)
+
 A **fully local** RAG (retrieval-augmented generation) assistant that answers a software
 support team's questions based on runbooks (troubleshooting guides) and knowledge notes.
 The embedding and language models run on your own machine through [Ollama](https://ollama.com);
