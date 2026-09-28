@@ -112,6 +112,22 @@ Hybrid search            True     False
 Hybrid + reranking       True     True
 ```
 
+## Limitations and what was tried
+
+- **Small test set.** 30 questions; each question is worth about 3 percentage points, so small differences between experiments may be noise.
+- **Crude stemming has side effects.** 5-letter prefix stemming handles Turkish suffixes and typos well, but unrelated words can collapse to the same stem (e.g. *"satın almak"*, "to buy", and the *"satınalma"*, "procurement", module).
+- **Heading-based chunking was tried and dropped.** Splitting runbooks by `##` headings, with the document title added to each chunk, lowered Hit@1. Generic sections that look alike across runbooks (e.g. "Affected module", "When to escalate") became separate chunks and started scoring high for the wrong files. The simple 800-character chunking was kept.
+- **Short knowledge notes are still the weakest point.** Most remaining misses are knowledge notes losing to longer runbooks.
+- **Only retrieval is evaluated.** The eval does not measure whether the generated summary is faithful to the source. This is one reason the runbook is always shown verbatim below the answer.
+- **Reranking depends on the LLM.** Results were measured with `qwen2.5:7b`; another model may give a different Hit@1.
+
+### Planned
+
+- Clarifying questions for ambiguous queries (the `AMBIGUOUS` set is kept for this)
+- Reading error messages from screenshots with a vision-capable model
+- Query rewriting when the first search returns weak results
+- A persistent vector store instead of re-embedding at every start
+
 ## Installation
 
 ### 1. Ollama and models
