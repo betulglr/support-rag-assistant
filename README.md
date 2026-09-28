@@ -1,4 +1,4 @@
-# Support Team RAG Assistant
+# Support Team RAG Assistant (Turkish)
 
 [Türkçe](README.tr.md)
 
