@@ -42,9 +42,32 @@
    HAVING COUNT(*) > 1;
 ```
 
-4. **Sonucu okuyun.**
+4. **Satışın siparişteki beden/varyanttan düşülüp düşülmediğini kontrol edin.** Satış
+   hareketinin `KaynakReferans` değeri `SiparisNo/SiraNo` biçimindedir; sorgu her satışı ait olduğu
+   sipariş kalemiyle eşleştirir ve yalnızca varyantı uyuşmayanları listeler.
+
+```sql
+   SELECT sh.HareketId, sh.HareketTarihi, sh.KaynakReferans, sh.Miktar,
+          sh.VaryantKodu AS DusulenVaryant,
+          sk.VaryantKodu AS SiparisVaryant
+   FROM dbo.StokHareket sh
+   JOIN dbo.Urun u ON u.UrunId = sh.UrunId
+   JOIN dbo.SiparisKalem sk ON sk.UrunId = sh.UrunId
+   JOIN dbo.Siparis s ON s.SiparisId = sk.SiparisId
+   WHERE u.UrunKodu = @UrunKodu
+     AND sh.HareketTipi = 'SATIS'
+     AND sh.KaynakReferans = s.SiparisNo + '/' + CAST(sk.SiraNo AS varchar(10))
+     AND sh.VaryantKodu <> sk.VaryantKodu
+   ORDER BY sh.HareketTarihi DESC;
+```
+
+5. **Sonucu okuyun.**
    - Mükerrer hareket varsa (Adet > 1) → fazladan satış düşümü bakiyeyi eksiye düşürmüş olabilir.
+   - Varyantın hiç `MAL_KABUL` hareketi yoksa → mal kabul girilmemiş, sadece satışlar işlenmiş.
    - Mal kabul kaydı, kendisinden sonraki satışlardan geç tarihliyse → sıralama sorunu.
+   - 4. adım satır döndürürse → beden karışıklığı: satış, siparişteki bedenden (`SiparisVaryant`)
+     değil başka bir bedenden (`DusulenVaryant`) düşülmüş. `DusulenVaryant` eksiye düşer,
+     `SiparisVaryant` raftakinden fazla görünür.
    - Hiç anormallik yoksa → gerçekten fazla satış yapılmış olabilir, depoyla sayım teyidi yapın.
    - Mükerrer satır sayısını not alın.
 
@@ -53,9 +76,11 @@
   **Çözüm:** Fazladan (mükerrer) hareketi silmek gerekir → aşağıdaki script (geliştirici onayı).
 - **Neden:** Mal kabul kaydı hiç girilmemiş, sadece satışlar işlenmiş.
   **Çözüm:** Kullanıcıdan eksik mal kabul kaydını Hareketler ekranından girmesini isteyin.
-- **Neden:** Varyant yanlış seçilmiş (ör. M beden satışı L bedenden düşülmüş).
-  **Çözüm:** Kullanıcı ilgili hareketin varyantını düzeltmeli; ekranda düzeltilemiyorsa
-  geliştiriciye iletin.
+- **Neden:** Beden/varyant karışıklığı: satış, siparişteki bedenden değil başka bir bedenden
+  düşülmüş (ör. M beden satışı L bedenden düşülmüş). Bir beden eksiye düşer, diğeri fazla görünür;
+  4. adımda `DusulenVaryant` ile `SiparisVaryant` farklı çıkar.
+  **Çözüm:** Kullanıcı ilgili hareketin varyantını sipariş kalemindeki bedene düzeltmeli; ekranda
+  düzeltilemiyorsa geliştiriciye iletin.
 
 ## Ne zaman geliştiriciye iletilir
 - Mükerrer hareket tespit edildiyse (silme işlemi gerekir).
@@ -123,4 +148,4 @@ END CATCH
 **Sonuç nasıl okunur:** TAMAM → işlem bitti. GERİ ALINDI veya HATA → hiçbir şey değişmedi, geliştiriciye bildirin.
 
 ## Son güncelleme
-2026-09-28
+2026-10-01

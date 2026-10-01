@@ -33,11 +33,32 @@
    ORDER BY ik.SiraNo;
 ```
 
-3. **Sonucu okuyun.**
+3. **İade tutarını mağazanın iade kargo kesintisi ayarıyla birlikte kontrol edin.** Bu sorgu
+   sadece okuma yapar, hiçbir şeyi değiştirmez.
+
+```sql
+   SELECT i.IadeNo, i.Durum, m.MagazaKodu, m.IadeKargoUcretiKes,
+          SUM(ik.IadeAdet * sk.BirimFiyat) AS KalemToplami,
+          i.KargoKesintiTutari, i.GeriOdemeTutari
+   FROM dbo.Iade i
+   JOIN dbo.Siparis s ON s.SiparisId = i.SiparisId
+   JOIN dbo.Magaza m ON m.MagazaId = s.MagazaId
+   JOIN dbo.IadeKalem ik ON ik.IadeId = i.IadeId
+   JOIN dbo.SiparisKalem sk ON sk.SiparisKalemId = ik.SiparisKalemId
+   WHERE i.IadeNo = @IadeNo
+   GROUP BY i.IadeNo, i.Durum, m.MagazaKodu, m.IadeKargoUcretiKes,
+            i.KargoKesintiTutari, i.GeriOdemeTutari;
+```
+
+4. **Sonucu okuyun.**
    - `TeslimAlmaZamani` NULL olan kalem varsa → iade bu yüzden kapanmıyor.
    - `IadeAdet > SatisAdet` (satılandan fazla iade) ise → hatalı giriş, geri ödeme tutarı bozuk.
-   - Tüm satırlar dolu ve tutarlıysa → sorun kapanışta değil, kargo ücreti kesintisi
-     ayarındadır.
+   - Tüm satırlar dolu ve tutarlıysa 3. adımın sonucuna bakın:
+     - `IadeKargoUcretiKes = 1` ve `GeriOdemeTutari = KalemToplami - KargoKesintiTutari` ise →
+       mağazanın "İade kargo ücretini müşteriden kes" ayarı açık; tutar doğru, fark bu kesintidir.
+     - `IadeKargoUcretiKes = 0` ve `GeriOdemeTutari = KalemToplami` ise → tutar doğru, kesinti yok.
+     - Bu iki eşitlikten hiçbiri tutmuyorsa → geri ödeme hesabında açıklanamayan fark var,
+       geliştiriciye iletin.
    - Eksik/hatalı satır sayısını not alın.
 
 ## Olası nedenler ve çözümleri
@@ -47,7 +68,8 @@
   geliştirici onayı).
 - **Neden:** İade adedi, satılan adetten fazla girilmiş.
   **Çözüm:** Kullanıcı iade kalemini açıp adedi düzeltmeli; ardından geri ödeme yeniden hesaplanır.
-- **Neden:** Mağaza ayarlarında "İade kargo ücretini müşteriden kes" seçeneği açık.
+- **Neden:** Mağaza ayarlarında "İade kargo ücretini müşteriden kes" seçeneği açık
+  (3. adımda `IadeKargoUcretiKes = 1`, geri ödeme = kalem toplamı - kesinti).
   **Çözüm:** Tutar doğrudur; müşteriye kesintiyi açıklayın ya da mağaza yöneticisi ayarı değiştirsin.
 
 ## Ne zaman geliştiriciye iletilir
@@ -110,4 +132,4 @@ END CATCH
 **Sonuç nasıl okunur:** TAMAM → işlem bitti. GERİ ALINDI veya HATA → hiçbir şey değişmedi, geliştiriciye bildirin.
 
 ## Son güncelleme
-2026-09-28
+2026-10-01
