@@ -87,16 +87,22 @@ feature ("which one did you mean?").
 ### Results
 
 ```
-Experiment               Hit@1         Hit@4
-----------------------   -----------   ------------
-Embedding only           24/30 (80%)   27/30 (90%)
-Hybrid search            24/30 (80%)   30/30 (100%)
-Hybrid + reranking       28/30 (93%)   30/30 (100%)
+Experiment                                                   Hit@1         Hit@4
+----------------------------------------------------------   -----------   ------------
+Embedding only                                               24/30 (80%)   27/30 (90%)
+Hybrid search                                                24/30 (80%)   30/30 (100%)
+Hybrid + reranking                                           28/30 (93%)   30/30 (100%)
+Hybrid + reranking (diagnostic steps added to 02 and 05)     26/30 (86%)   29/30 (96%)
 ```
 
 - Hybrid search always gets the correct file into the top 4 (Hit@4 100%). BM25 catches the
   typo-heavy, keyword-driven questions that embeddings miss.
 - Reranking lifts the correct candidate to the top, raising Hit@1 from 80% to 93%.
+- **Last row:** a diagnostic step was added to runbook 02 (refund amount and the store's
+  return-shipping deduction setting) and to runbook 05 (size/variant mix-up). The runbooks are
+  more accurate now, but the new SQL content affected some questions in search. On this small
+  test set the difference is 2 questions: two 06 questions (price change approval) were missed.
+  This drop was accepted on purpose.
 
 **Model used:** the experiments used `qwen2.5:7b` as the LLM (`LLM_MODEL` in `rag.py`). Since
 reranking relies on this model's decision, the "Hybrid + reranking" row depends on the model;
@@ -111,22 +117,6 @@ Embedding only           False    False
 Hybrid search            True     False
 Hybrid + reranking       True     True
 ```
-
-## Limitations and what was tried
-
-- **Small test set.** 30 questions; each question is worth about 3 percentage points, so small differences between experiments may be noise.
-- **Crude stemming has side effects.** 5-letter prefix stemming handles Turkish suffixes and typos well, but unrelated words can collapse to the same stem (e.g. *"satın almak"*, "to buy", and the *"satınalma"*, "procurement", module).
-- **Heading-based chunking was tried and dropped.** Splitting runbooks by `##` headings, with the document title added to each chunk, lowered Hit@1. Generic sections that look alike across runbooks (e.g. "Affected module", "When to escalate") became separate chunks and started scoring high for the wrong files. The simple 800-character chunking was kept.
-- **Short knowledge notes are still the weakest point.** Most remaining misses are knowledge notes losing to longer runbooks.
-- **Only retrieval is evaluated.** The eval does not measure whether the generated summary is faithful to the source. This is one reason the runbook is always shown verbatim below the answer.
-- **Reranking depends on the LLM.** Results were measured with `qwen2.5:7b`; another model may give a different Hit@1.
-
-### Planned
-
-- Clarifying questions for ambiguous queries (the `AMBIGUOUS` set is kept for this)
-- Reading error messages from screenshots with a vision-capable model
-- Query rewriting when the first search returns weak results
-- A persistent vector store instead of re-embedding at every start
 
 ## Installation
 
@@ -152,7 +142,19 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Running
+### 3. Diagnostic database
+
+Create the fictional SQLite database used by the diagnostic tools (standard library only, no
+extra packages):
+
+```bash
+python db/create_db.py
+```
+
+`db/siparion.db` is deleted and rebuilt with the same content on every run. The file is in
+`.gitignore`. The RAG assistant (`rag.py`, `eval.py`) does not use this database.
+
+### 4. Running
 
 Interactive assistant:
 
@@ -210,14 +212,54 @@ RAG_DATA_DIR=~/my_data_folder python eval.py
 
 `rag.py` and `eval.py` read the same variable.
 
+## Diagnostic tools (in development)
+
+Right now the assistant finds the right runbook and shows its check queries. Running those
+queries and interpreting the results is still up to the support team. The tools in this section
+are the groundwork for an agent that will do that work. Everything runs on fictional data.
+
+- **`db/create_db.py`:** builds a fictional SQLite database (`db/siparion.db`) with the tables
+  used in the runbook queries. It holds hundreds of orders, returns, coupons, picking jobs,
+  stock movements and price change requests. The seed is fixed, so every run produces the same
+  database. The database's "now" is fixed as well: `2026-09-30 15:00:00`. For each cause of the
+  six troubleshooting runbooks, one problem scenario is placed among the normal records
+  (18 scenarios in total).
+- **`db/SENARYOLAR.md`:** the answer key. For each scenario: how the support team would ask,
+  the related records, the expected runbook and the expected cause.
+- **`db/sorgular_sqlite.md`:** SQLite equivalents of the runbooks' SQL Server queries. The
+  runbooks stay in SQL Server syntax.
+- **`araclar.py`:** 14 read-only tools. Each read query in the runbooks is a separate function,
+  all collected in the `ARACLAR` dictionary. The database is opened read-only and parameters
+  are passed with `?`. Data-changing scripts are deliberately not tools. The docstrings state
+  which runbook step a tool belongs to, its parameters and how to read the result. They will
+  later serve as tool descriptions.
+- **`db/test_araclar.py`:** runs the relevant tools for each scenario and checks whether the
+  output contains evidence of the expected cause. Result: in 17 scenarios the cause is directly
+  visible in the tool output. In the remaining one, S6-C, the cause is the user's list filter.
+  That is not stored in the database, so the agent is expected to ask the user.
+
+```bash
+python db/create_db.py      # build the database
+python db/test_araclar.py   # run the tools against the scenarios
+```
+
+**Next step:** expose these tools through an MCP server and build an agent. The agent will find
+the runbook with RAG, run the check steps with the tools, and interpret the results using the
+runbook's "read the result" rules.
+
 ## Files
 
 ```
-File               Description
-----------------   ----------------------------------------------------------------
-rag.py             Indexing, hybrid search, reranking, answer generation, validation
-eval.py            Hit@1 / Hit@4 evaluation
-tests.py           Test questions (TESTS) and ambiguous questions (AMBIGUOUS)
-runbooks/          Fictional runbooks and knowledge notes
-requirements.txt   Python dependencies
+File                   Description
+--------------------   ----------------------------------------------------------------
+rag.py                 Indexing, hybrid search, reranking, answer generation, validation
+eval.py                Hit@1 / Hit@4 evaluation
+tests.py               Test questions (TESTS) and ambiguous questions (AMBIGUOUS)
+runbooks/              Fictional runbooks and knowledge notes
+araclar.py             Read-only diagnostic tools (14 tools, ARACLAR dictionary)
+db/create_db.py        Builds the fictional SQLite database
+db/SENARYOLAR.md       Answer key for the scenarios
+db/sorgular_sqlite.md  SQLite equivalents of the runbook queries
+db/test_araclar.py     Runs the tools against the scenarios
+requirements.txt       Python dependencies
 ```
