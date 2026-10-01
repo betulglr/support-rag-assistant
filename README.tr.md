@@ -78,16 +78,21 @@ netleştirme sorusu ("hangisini kastettiniz?") özelliğini test etmek için sak
 ### Sonuçlar
 
 ```
-Deney                       Hit@1         Hit@4
--------------------------   -----------   ------------
-Sadece embedding            24/30 (%80)   27/30 (%90)
-Hibrit arama                24/30 (%80)   30/30 (%100)
-Hibrit + yeniden sıralama   28/30 (%93)   30/30 (%100)
+Deney                                                   Hit@1         Hit@4
+-----------------------------------------------------   -----------   ------------
+Sadece embedding                                        24/30 (%80)   27/30 (%90)
+Hibrit arama                                            24/30 (%80)   30/30 (%100)
+Hibrit + yeniden sıralama                               28/30 (%93)   30/30 (%100)
+Hibrit + yeniden sıralama (02/05'e teşhis adımları)     26/30 (%86)   29/30 (%96)
 ```
 
 - Hibrit arama doğru dosyayı her zaman ilk 4'e sokuyor (Hit@4 %100). Embedding'in kaçırdığı
   yazım hatalı ve anahtar kelimeye dayalı soruları BM25 yakalıyor.
 - Yeniden sıralama, adaylar arasında doğru olanı öne çıkararak Hit@1'i %80'den %93'e taşıyor.
+- **Son satır:** Runbook 02'ye (iade tutarı ve mağaza kesinti ayarı) ve 05'e (beden/varyant
+  karışıklığı) birer teşhis adımı eklendi. Runbook'lar daha doğru hale geldi, ama yeni SQL
+  içerikleri aramada bazı soruları etkiledi. Küçük test setinde fark 2 soru: iki 06 sorusu
+  (fiyat talebi onayı) kaçtı. Bu düşüş bilerek kabul edildi.
 
 **Kullanılan model:** Deneylerde LLM olarak `qwen2.5:7b` kullanıldı (`rag.py` içindeki
 `LLM_MODEL`). Yeniden sıralama adımı bu modelin kararına dayandığı için "Hibrit + yeniden
@@ -103,23 +108,6 @@ Sadece embedding            False    False
 Hibrit arama                True     False
 Hibrit + yeniden sıralama   True     True
 ```
-
-## Sınırlamalar ve denenenler
-
-- **Test seti küçük.** 30 soru var; her soru yaklaşık 3 puan ediyor, bu yüzden deneyler arasındaki küçük farklar gürültü olabilir.
-- **Kaba kök kesmenin yan etkileri var.** 5 harf kök kesme Türkçe ekleri ve yazım hatalarını iyi yakalıyor, ama farklı anlamdaki kelimeler aynı köke düşebiliyor (ör. *"satın almak"* ile *"satınalma"* modülü).
-- **Başlıklara göre parçalama denendi ve bırakıldı.** Runbook'ları `##` başlıklarına göre bölüp her parçaya doküman başlığını eklemek Hit@1'i düşürdü. Runbook'lar arasında birbirine benzeyen genel bölümler (ör. "Etkilenen modül", "Ne zaman geliştiriciye iletilir") ayrı parçalar haline gelince yanlış dosyalardan da yüksek skor almaya başladı. Basit 800 karakterlik parçalamada kalındı.
-- **Kısa bilgi notları hâlâ en zayıf nokta.** Kalan hataların çoğu, bilgi notlarının uzun runbook'lara kaybetmesinden kaynaklanıyor.
-- **Sadece getirme adımı ölçülüyor.** Eval, üretilen özetin kaynağa sadık olup olmadığını ölçmüyor. Runbook'un cevabın altında her zaman değiştirilmeden gösterilmesinin bir sebebi de bu.
-- **Yeniden sıralama LLM'e bağlı.** Sonuçlar `qwen2.5:7b` ile ölçüldü; başka bir modelle Hit@1 farklı çıkabilir.
-
-### Planlananlar
-
-- Belirsiz sorularda netleştirme sorusu (`AMBIGUOUS` seti bunun için saklanıyor)
-- Görüntü okuyabilen bir modelle ekran görüntüsünden hata mesajı okuma
-- İlk arama zayıf sonuç verdiğinde soruyu yeniden yazıp tekrar arama
-- Her açılışta yeniden hesaplamak yerine kalıcı bir vektör deposu
-
 
 ## Kurulum
 
@@ -145,7 +133,19 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Çalıştırma
+### 3. Teşhis veritabanı
+
+Teşhis araçları için kurgusal SQLite veritabanını oluşturun (yalnızca standart kütüphane
+kullanır, ek paket gerekmez):
+
+```bash
+python db/create_db.py
+```
+
+`db/siparion.db` her çalıştırmada silinip aynı içerikle yeniden oluşturulur. Dosya
+`.gitignore` içindedir. RAG asistanı (`rag.py`, `eval.py`) bu veritabanını kullanmaz.
+
+### 4. Çalıştırma
 
 Etkileşimli asistan:
 
@@ -204,14 +204,54 @@ RAG_DATA_DIR=~/veri_klasorum python eval.py
 
 `rag.py` ve `eval.py` aynı değişkeni okur.
 
+## Teşhis araçları (geliştirme aşamasında)
+
+Asistan şu an doğru runbook'u bulup kontrol sorgularını gösteriyor. Sorguları çalıştırmak ve
+sonucu yorumlamak hâlâ destek ekibinin işi. Bu bölümdeki araçlar, bu işi yapacak bir agent'ın
+altyapısıdır. Hepsi kurgusal veri üzerinde çalışır.
+
+- **`db/create_db.py`:** Runbook sorgularında geçen tablolarla kurgusal bir SQLite veritabanı
+  (`db/siparion.db`) oluşturur. Veritabanında yüzlerce sipariş, iade, kupon, toplama işi, stok
+  hareketi ve fiyat talebi var. Seed sabit olduğu için her çalıştırmada aynı veritabanı oluşur.
+  Veritabanının "şu an"ı da sabittir: `2026-09-30 15:00:00`. Altı sorun runbook'unun her
+  nedeni için bir sorunlu senaryo, normal kayıtların arasına dağıtılarak yerleştirildi
+  (toplam 18 senaryo).
+- **`db/SENARYOLAR.md`:** Cevap anahtarı. Her senaryo için: destek ekibinin soruyu nasıl
+  soracağı, ilgili kayıtlar, beklenen runbook ve beklenen neden.
+- **`db/sorgular_sqlite.md`:** Runbook'lardaki SQL Server sorgularının SQLite karşılıkları.
+  Runbook'lar SQL Server sözdiziminde kalır.
+- **`araclar.py`:** 14 salt okunur araç. Runbook'lardaki her okuma sorgusu ayrı bir
+  fonksiyondur ve hepsi `ARACLAR` sözlüğünde toplanır. Veritabanı salt okunur açılır,
+  parametreler `?` ile verilir. Veri değiştiren script'ler bilerek araç yapılmadı.
+  Docstring'lerde aracın hangi runbook adımında kullanılacağı, parametreleri ve sonucun
+  nasıl okunacağı yazar. Bunlar ileride araç açıklaması olarak kullanılacak.
+- **`db/test_araclar.py`:** Her senaryoda ilgili araçları çalıştırır ve beklenen nedenin
+  kanıtı çıktıda var mı diye kontrol eder. Sonuç: 17 senaryoda neden araç çıktısında
+  doğrudan görünüyor. Kalan S6-C'de neden, kullanıcının liste filtresi. Bu bilgi
+  veritabanında olmadığı için agent'ın kullanıcıya sorması gerekir.
+
+```bash
+python db/create_db.py      # veritabanını oluştur
+python db/test_araclar.py   # araçları senaryolarla dene
+```
+
+**Sonraki adım:** Bu araçları bir MCP server üzerinden sunmak ve bir agent kurmak. Agent
+runbook'u RAG ile bulacak, kontrol adımlarını araçlarla çalıştıracak ve sonucu runbook'un
+"Sonucu okuyun" kurallarıyla yorumlayacak.
+
 ## Dosyalar
 
 ```
-Dosya              Açıklama
-----------------   ----------------------------------------------------------------------
-rag.py             İndeksleme, hibrit arama, yeniden sıralama, cevap üretimi ve doğrulama
-eval.py            Hit@1 / Hit@4 değerlendirmesi
-tests.py           Test soruları (TESTS) ve belirsiz sorular (AMBIGUOUS)
-runbooks/          Kurgusal runbook ve bilgi notları
-requirements.txt   Python bağımlılıkları
+Dosya                  Açıklama
+--------------------   ----------------------------------------------------------------------
+rag.py                 İndeksleme, hibrit arama, yeniden sıralama, cevap üretimi ve doğrulama
+eval.py                Hit@1 / Hit@4 değerlendirmesi
+tests.py               Test soruları (TESTS) ve belirsiz sorular (AMBIGUOUS)
+runbooks/              Kurgusal runbook ve bilgi notları
+araclar.py             Salt okunur teşhis araçları (14 araç, ARACLAR sözlüğü)
+db/create_db.py        Kurgusal SQLite veritabanını oluşturur
+db/SENARYOLAR.md       Senaryoların cevap anahtarı
+db/sorgular_sqlite.md  Runbook sorgularının SQLite karşılıkları
+db/test_araclar.py     Araçları senaryolarla dener
+requirements.txt       Python bağımlılıkları
 ```
